@@ -53,6 +53,7 @@
 #include <pcl/point_types.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/io/pcd_io.h>
+#include <pcl/io/ply_io.h>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <std_srvs/srv/trigger.hpp>
@@ -541,6 +542,18 @@ void publish_frame_world(rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::Share
         }
     }
     */
+    if (pcd_save_en)
+    {
+        int size = feats_undistort->points.size();
+        PointCloudXYZI::Ptr laserCloudWorld( new PointCloudXYZI(size, 1));
+
+        for (int i = 0; i < size; i++)
+        {
+            RGBpointBodyToWorld(&feats_undistort->points[i], &laserCloudWorld->points[i]);
+        }
+        // 每一帧点云追加到存图容器
+        *pcl_wait_save += *laserCloudWorld;
+    }
 }
 
 void publish_frame_body(rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pubLaserCloudFull_body)
@@ -942,7 +955,7 @@ public:
         auto map_period_ms = std::chrono::milliseconds(static_cast<int64_t>(1000.0));
         map_pub_timer_ = rclcpp::create_timer(this, this->get_clock(), map_period_ms, std::bind(&LaserMappingNode::map_publish_callback, this));
 
-        map_save_srv_ = this->create_service<std_srvs::srv::Trigger>("map_save", std::bind(&LaserMappingNode::map_save_callback, this, std::placeholders::_1, std::placeholders::_2));
+        // map_save_srv_ = this->create_service<std_srvs::srv::Trigger>("map_save", std::bind(&LaserMappingNode::map_save_callback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
 
         RCLCPP_INFO(this->get_logger(), "Node init finished.");
     }
@@ -1112,21 +1125,21 @@ private:
         if (map_pub_en) publish_map(pubLaserCloudMap_);
     }
 
-    void map_save_callback(std_srvs::srv::Trigger::Request::ConstSharedPtr req, std_srvs::srv::Trigger::Response::SharedPtr res)
-    {
-        RCLCPP_INFO(this->get_logger(), "Saving map to %s...", map_file_path.c_str());
-        if (pcd_save_en)
-        {
-            save_to_pcd();
-            res->success = true;
-            res->message = "Map saved.";
-        }
-        else
-        {
-            res->success = false;
-            res->message = "Map save disabled.";
-        }
-    }
+    // void map_save_callback(const std::shared_ptr<rmw_request_id_t> request_id, std_srvs::srv::Trigger::Request::ConstSharedPtr req, std_srvs::srv::Trigger::Response::SharedPtr res)
+    // {
+    //     RCLCPP_INFO(this->get_logger(), "Saving map to %s...", map_file_path.c_str());
+    //     if (pcd_save_en)
+    //     {
+    //         save_to_pcd();
+    //         res->success = true;
+    //         res->message = "Map saved.";
+    //     }
+    //     else
+    //     {
+    //         res->success = false;
+    //         res->message = "Map save disabled.";
+    //     }
+    // }
 
 private:
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pubLaserCloudFull_;
@@ -1142,7 +1155,7 @@ private:
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
     rclcpp::TimerBase::SharedPtr timer_;
     rclcpp::TimerBase::SharedPtr map_pub_timer_;
-    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr map_save_srv_;
+    // rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr map_save_srv_;
 
     bool effect_pub_en = false, map_pub_en = false;
     int effect_feat_num = 0, frame_num = 0;
@@ -1167,13 +1180,16 @@ int main(int argc, char** argv)
     /**************** save map ****************/
     /* 1. make sure you have enough memories
     /* 2. pcd save will largely influence the real-time performences **/
+    // cout << "pcl_wait_save size: " << pcl_wait_save->size() << endl;
     if (pcl_wait_save->size() > 0 && pcd_save_en)
     {
-        string file_name = string("scans.pcd");
+        string file_name = string("scans.ply");
         string all_points_dir(string(string(ROOT_DIR) + "PCD/") + file_name);
-        pcl::PCDWriter pcd_writer;
+        // pcl::PCDWriter pcd_writer;
+        pcl::PLYWriter ply_writer;
         cout << "current scan saved to /PCD/" << file_name<<endl;
-        pcd_writer.writeBinary(all_points_dir, *pcl_wait_save);
+        // pcd_writer.writeBinary(all_points_dir, *pcl_wait_save);
+        ply_writer.write(all_points_dir, *pcl_wait_save, true, false);
     }
 
     if (runtime_pos_log)
